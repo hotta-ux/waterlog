@@ -883,7 +883,8 @@
 
   // ── Share ──
   function openShare(id) {
-    const r = records.find(x=>x.id===id); if(!r) return;
+    const r = records.find(x=>x.id===id);
+    if(!r) { showToast('記録が見つかりません'); return; }
     shareData = r;
     const j = judge(r.ppm), color = ppmColor(r.ppm);
     const d = new Date(r.date);
@@ -908,34 +909,99 @@
     return `☕ ${shareData.store}（${shareData.location}）\n${tl}: ${shareData.ppm}ppm【${j.l}】\n#WaterLog`;
   }
 
-  function shareToX() {
-    window.open('https://x.com/intent/tweet?text='+encodeURIComponent(getShareText()), '_blank');
+  // シェアカードを画像化
+  async function shareCardToImage() {
+    const card = document.getElementById('share-card-inner');
+    const canvas = document.createElement('canvas');
+    const scale = 2;
+    canvas.width = card.offsetWidth * scale;
+    canvas.height = card.offsetHeight * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    // 背景
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(0, 0, card.offsetWidth, card.offsetHeight, 16);
+    ctx.fill();
+    // テキスト描画
+    const r = shareData;
+    const j = judge(r.ppm), color = ppmColor(r.ppm);
+    const tl = r.type==='tap'?'水道水':'浄水';
+    const d = new Date(r.date);
+    const ds = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+    const cx = card.offsetWidth / 2;
+    let y = 30;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(r.store, cx, y); y += 22;
+    ctx.fillStyle = '#999'; ctx.font = '12px sans-serif';
+    ctx.fillText(r.location, cx, y); y += 30;
+    ctx.fillStyle = color; ctx.font = 'bold 48px sans-serif';
+    ctx.fillText(r.ppm + ' ppm', cx, y); y += 20;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(j.l, cx, y); y += 24;
+    // タイプバッジ
+    const badgeBg = r.type==='tap' ? '#4a9ece' : '#34bfa0';
+    const bw = ctx.measureText(tl).width + 20;
+    ctx.fillStyle = badgeBg;
+    ctx.beginPath(); ctx.roundRect(cx - bw/2, y - 12, bw, 20, 10); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(tl, cx, y + 2); y += 24;
+    ctx.fillStyle = '#999'; ctx.font = '11px sans-serif';
+    ctx.fillText(ds, cx, y); y += 20;
+    ctx.fillStyle = '#4a9ece'; ctx.font = 'bold 10px sans-serif';
+    ctx.letterSpacing = '0.5px';
+    ctx.fillText('WaterLog', cx, y);
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
   }
 
-  function shareToLINE() {
-    window.open('https://social-plugins.line.me/lineit/share?url=&text='+encodeURIComponent(getShareText()), '_blank');
+  async function shareToX() {
+    const text = getShareText();
+    window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text), '_blank');
   }
 
-  function copyShareText() {
-    navigator.clipboard.writeText(getShareText()).then(()=>showToast('コピーしました'));
+  async function shareToLINE() {
+    const text = getShareText();
+    window.open('https://line.me/R/share?text='+encodeURIComponent(text), '_blank');
   }
 
-  // ── Native Share (Instagram Stories, etc.) ──
+  async function copyShareText() {
+    try {
+      await navigator.clipboard.writeText(getShareText());
+      showToast('コピーしました');
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = getShareText(); ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('コピーしました');
+    }
+  }
+
+  // ネイティブシェア（画像付き）
   async function nativeShare() {
     if (!shareData) return;
     const text = getShareText();
+    try {
+      const blob = await shareCardToImage();
+      const file = new File([blob], 'waterlog.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ text, files: [file] });
+        showToast('シェアしました'); closeShare(); return;
+      }
+    } catch {}
+    // 画像シェア非対応 → テキストのみ
     if (navigator.share) {
       try {
         await navigator.share({ text });
-        showToast('シェアしました');
-        closeShare();
+        showToast('シェアしました'); closeShare(); return;
       } catch (e) {
-        if (e.name !== 'AbortError') showToast('シェアに失敗しました');
+        if (e.name === 'AbortError') return;
       }
-    } else {
-      await navigator.clipboard.writeText(text);
-      showToast('コピーしました');
     }
+    // 最終フォールバック: コピー
+    await copyShareText();
   }
 
   // ── Delete ──
@@ -971,7 +1037,24 @@
     map = L.map('map').setView([35.68,139.69], 11);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19,subdomains:'abcd'}).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
-    renderMapMarkers();
+    retryGeocode().then(()=>renderMapMarkers());
+  }
+
+  // 座標がないレコードを再ジオコーディング
+  async function retryGeocode() {
+    const missing = records.filter(r => !r.lat || !r.lng);
+    if (!missing.length) return;
+    let updated = false;
+    for (const r of missing) {
+      const coords = await geocode(r.location);
+      if (coords) {
+        r.lat = coords[0]; r.lng = coords[1]; updated = true;
+      } else if (r.store && r.store !== r.location) {
+        const coords2 = await geocode(r.store);
+        if (coords2) { r.lat = coords2[0]; r.lng = coords2[1]; updated = true; }
+      }
+    }
+    if (updated) saveRecords();
   }
 
   function renderMapMarkers() {
