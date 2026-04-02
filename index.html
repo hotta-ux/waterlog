@@ -1117,27 +1117,33 @@
     }
   }
 
-  // ネイティブシェア（画像付き）
+  // Instagram ストーリーズに直接シェア
   async function nativeShare() {
     if (!shareData) return;
-    const text = getShareText();
+    showToast('画像を生成中...');
     try {
       const blob = await shareCardToImage();
       const file = new File([blob], 'waterlog.png', { type: 'image/png' });
+      // Web Share API で画像付きシェア → iOSならInstagram Storiesが選択肢に出る
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ text, files: [file] });
+        await navigator.share({ files: [file] });
         showToast('シェアしました'); closeShare(); return;
       }
-    } catch {}
-    // 画像シェア非対応 → テキストのみ
-    if (navigator.share) {
-      try {
-        await navigator.share({ text });
-        showToast('シェアしました'); closeShare(); return;
-      } catch (e) {
-        if (e.name === 'AbortError') return;
-      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
     }
+    // Web Share API非対応 → 画像を保存してInstagramを開く
+    try {
+      const blob = await shareCardToImage();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `waterlog-${shareData.ppm}ppm.png`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('画像を保存しました。Instagramを開きます...');
+      setTimeout(() => { window.location.href = 'instagram://story-camera'; }, 800);
+      setTimeout(() => { closeShare(); }, 1500);
+      return;
+    } catch {}
     // 最終フォールバック: コピー
     await copyShareText();
   }
