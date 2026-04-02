@@ -10,6 +10,8 @@
   <title>WaterLog</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <style>
     :root {
       --bg: #f0f7fb;
@@ -736,6 +738,46 @@
 <input type="file" id="import-file" accept=".json" onchange="importData(event)">
 
 <script>
+  // ── Firebase ──
+  firebase.initializeApp({
+    apiKey: "AIzaSyCIV9S7zgxwQWgZPLXQdrZGyzooctcYZ7s",
+    authDomain: "waterlog-5e38a.firebaseapp.com",
+    projectId: "waterlog-5e38a",
+    storageBucket: "waterlog-5e38a.firebasestorage.app",
+    messagingSenderId: "16023776447",
+    appId: "1:16023776447:web:4ae984df35aec1ceb06a0a"
+  });
+  const db = firebase.firestore();
+
+  // Firestoreに記録を保存
+  async function syncToFirestore(record) {
+    try {
+      await db.collection('records').doc(String(record.id)).set({
+        store: record.store || '',
+        location: record.location,
+        ppm: record.ppm,
+        type: record.type,
+        lat: record.lat || null,
+        lng: record.lng || null,
+        date: record.date,
+        memo: record.memo || ''
+      });
+    } catch (e) { console.warn('Firestore sync failed:', e); }
+  }
+
+  // Firestoreから全レコードを取得（マップ用）
+  async function fetchAllRecords() {
+    try {
+      const snap = await db.collection('records').orderBy('date', 'desc').limit(500).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) { console.warn('Firestore fetch failed:', e); return []; }
+  }
+
+  // Firestoreから削除
+  async function deleteFromFirestore(id) {
+    try { await db.collection('records').doc(String(id)).delete(); } catch {}
+  }
+
   // ── PWA ──
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -932,9 +974,11 @@
     if (!loc) { showToast('場所を入力してください'); return; }
     showToast('保存中...');
     const coords = await geocode(loc);
-    records.unshift({ id: Date.now(), type: selectedType, store: store||loc, location: loc, ppm, memo,
-      lat: coords?coords[0]:null, lng: coords?coords[1]:null, date: new Date().toISOString() });
+    const rec = { id: Date.now(), type: selectedType, store: store||loc, location: loc, ppm, memo,
+      lat: coords?coords[0]:null, lng: coords?coords[1]:null, date: new Date().toISOString() };
+    records.unshift(rec);
     saveRecords(); updateAutoComplete();
+    syncToFirestore(rec);
     document.getElementById('ppm-slider').value = 0;
     document.getElementById('ppm-value').textContent = '0';
     document.getElementById('memo').value = '';
@@ -1152,6 +1196,7 @@
   function deleteRecord(id) {
     if (!confirm('この記録を削除しますか？')) return;
     records = records.filter(r=>r.id!==id); saveRecords(); renderRecords(); showToast('削除しました');
+    deleteFromFirestore(id);
   }
 
   // ── Filters ──
@@ -1176,12 +1221,33 @@
   }
 
   // ── Map ──
-  function initMap() {
-    if (map) return;
+  let allRecords = []; // Firestoreから取得した全ユーザーデータ
+
+  async function initMap() {
+    if (map) {
+      // 既にマップ初期化済み → データだけ再取得
+      await loadAllRecords();
+      renderMapMarkers();
+      return;
+    }
     map = L.map('map').setView([35.68,139.69], 11);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19,subdomains:'abcd'}).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
-    retryGeocode().then(()=>renderMapMarkers());
+    // ローカルの座標なしレコードを補完
+    await retryGeocode();
+    // Firestoreから全ユーザーデータ取得
+    await loadAllRecords();
+    renderMapMarkers();
+  }
+
+  async function loadAllRecords() {
+    const remote = await fetchAllRecords();
+    if (remote.length) {
+      allRecords = remote;
+    } else {
+      // Firestore取得失敗時はローカルデータをフォールバック
+      allRecords = records;
+    }
   }
 
   // 座標がないレコードを再ジオコーディング
@@ -1193,9 +1259,10 @@
       const coords = await geocode(r.location);
       if (coords) {
         r.lat = coords[0]; r.lng = coords[1]; updated = true;
+        syncToFirestore(r);
       } else if (r.store && r.store !== r.location) {
         const coords2 = await geocode(r.store);
-        if (coords2) { r.lat = coords2[0]; r.lng = coords2[1]; updated = true; }
+        if (coords2) { r.lat = coords2[0]; r.lng = coords2[1]; updated = true; syncToFirestore(r); }
       }
     }
     if (updated) saveRecords();
@@ -1204,7 +1271,8 @@
   function renderMapMarkers() {
     if (!markerLayer) return;
     markerLayer.clearLayers();
-    const fl = records.filter(r=>r.lat&&r.lng&&(mapFilter==='all'||r.type===mapFilter));
+    // 全ユーザーデータをマップに表示
+    const fl = allRecords.filter(r=>r.lat&&r.lng&&(mapFilter==='all'||r.type===mapFilter));
     const latest = {};
     fl.forEach(r=>{ const k=`${r.store}_${r.location}_${r.type}`; if(!latest[k]||new Date(r.date)>new Date(latest[k].date))latest[k]=r; });
     const bounds = [];
@@ -1371,7 +1439,7 @@
       btn.classList.add('active');
       document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
       const ct=document.getElementById('main-container');
-      if(btn.dataset.tab==='map'){ct.classList.add('map-active');setTimeout(()=>{initMap();map.invalidateSize();},100);}
+      if(btn.dataset.tab==='map'){ct.classList.add('map-active');setTimeout(async()=>{await initMap();if(map)map.invalidateSize();},100);}
       else ct.classList.remove('map-active');
       if(btn.dataset.tab==='history')renderRecords();
       if(btn.dataset.tab==='stats')renderStats();
