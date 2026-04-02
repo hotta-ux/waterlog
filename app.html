@@ -1075,30 +1075,36 @@
   }
 
   function openShare(id) {
-    const r = records.find(x=>String(x.id)===String(id));
-    if(!r) { showToast('記録が見つかりません'); return; }
-    shareData = r;
-    const j = judge(r.ppm), color = ppmColor(r.ppm);
-    const d = new Date(r.date);
-    const ds = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
-    const tl = r.type==='tap'?'水道水':'浄水';
-    const card = document.getElementById('share-card-inner');
-    card.style.background = shareGradient(r.ppm);
-    card.innerHTML = `
-      <div class="sc-icon">${shareEmoji(r.ppm)}</div>
-      <div class="sc-type-line">${tl}</div>
-      <div class="sc-ppm">${r.ppm} <span>ppm</span></div>
-      <div class="sc-judge">${j.l}</div>
-      <div class="sc-divider"></div>
-      <div class="sc-store">${esc(r.store)}</div>
-      <div class="sc-location">${esc(r.location)}</div>
-      <div class="sc-date">${ds}</div>
-      <div class="sc-brand-row">
-        <div class="sc-brand-dot"></div>
-        <div class="sc-brand">WaterLog</div>
-        <div class="sc-brand-dot"></div>
-      </div>`;
-    document.getElementById('share-overlay').classList.add('active');
+    try {
+      alert('openShare: id=' + id + ', records=' + records.length);
+      const r = records.find(x=>String(x.id)===String(id));
+      if(!r) { alert('NOT FOUND'); return; }
+      shareData = r;
+      const j = judge(r.ppm), color = ppmColor(r.ppm);
+      const d = new Date(r.date);
+      const ds = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+      const tl = r.type==='tap'?'水道水':'浄水';
+      const card = document.getElementById('share-card-inner');
+      card.style.background = shareGradient(r.ppm);
+      card.innerHTML = `
+        <div class="sc-icon">${shareEmoji(r.ppm)}</div>
+        <div class="sc-type-line">${tl}</div>
+        <div class="sc-ppm">${r.ppm} <span>ppm</span></div>
+        <div class="sc-judge">${j.l}</div>
+        <div class="sc-divider"></div>
+        <div class="sc-store">${esc(r.store)}</div>
+        <div class="sc-location">${esc(r.location)}</div>
+        <div class="sc-date">${ds}</div>
+        <div class="sc-brand-row">
+          <div class="sc-brand-dot"></div>
+          <div class="sc-brand">WaterLog</div>
+          <div class="sc-brand-dot"></div>
+        </div>`;
+      document.getElementById('share-overlay').classList.add('active');
+      alert('overlay activated');
+    } catch(e) {
+      alert('ERROR: ' + e.message);
+    }
   }
 
   function closeShare() { document.getElementById('share-overlay').classList.remove('active'); shareData=null; }
