@@ -1,4 +1,4 @@
-const CACHE_NAME = 'coffee-water-v1';
+const CACHE_NAME = 'waterlog-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -20,7 +20,8 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('tile.openstreetmap.org')) {
+  // タイルはキャッシュ優先
+  if (e.request.url.includes('basemaps.cartocdn.com') || e.request.url.includes('tile.openstreetmap.org')) {
     e.respondWith(
       caches.open('map-tiles').then(cache =>
         cache.match(e.request).then(r => r || fetch(e.request).then(res => {
@@ -31,7 +32,14 @@ self.addEventListener('fetch', e => {
     );
     return;
   }
+  // HTMLはネットワーク優先（最新コードを常に取得）
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+    fetch(e.request).then(res => {
+      if (res.ok) {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      }
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });
