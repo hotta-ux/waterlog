@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <style>
     :root {
@@ -751,11 +752,28 @@
     appId: "1:16023776447:web:4ae984df35aec1ceb06a0a"
   });
   const db = firebase.firestore();
+  let currentUserId = null;
 
-  // Firestoreに記録を保存
+  // 匿名認証でユーザーIDを取得
+  async function initAuth() {
+    try {
+      const result = await firebase.auth().signInAnonymously();
+      currentUserId = result.user.uid;
+    } catch (e) {
+      // フォールバック: localStorageベースのID
+      currentUserId = localStorage.getItem('waterlog_uid');
+      if (!currentUserId) {
+        currentUserId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        localStorage.setItem('waterlog_uid', currentUserId);
+      }
+    }
+  }
+
+  // Firestoreに記録を保存（ユーザーID付き）
   async function syncToFirestore(record) {
     try {
       await db.collection('records').doc(String(record.id)).set({
+        uid: currentUserId || 'unknown',
         store: record.store || '',
         location: record.location,
         ppm: record.ppm,
@@ -768,12 +786,23 @@
     } catch (e) { console.warn('Firestore sync failed:', e); }
   }
 
-  // Firestoreから全レコードを取得（マップ用）
+  // Firestoreから全レコードを取得（マップ用: 全ユーザー）
   async function fetchAllRecords() {
     try {
       const snap = await db.collection('records').orderBy('date', 'desc').limit(500).get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) { console.warn('Firestore fetch failed:', e); return []; }
+  }
+
+  // Firestoreから自分のレコードを取得（履歴用）
+  async function fetchMyRecords() {
+    if (!currentUserId) return [];
+    try {
+      const snap = await db.collection('records')
+        .where('uid', '==', currentUserId)
+        .orderBy('date', 'desc').limit(200).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) { console.warn('Firestore fetch my records failed:', e); return []; }
   }
 
   // Firestoreから削除
@@ -785,6 +814,23 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  // ── Auth初期化 ──
+  initAuth().then(() => {
+    // 認証完了後にFirestoreから自分のレコードを同期
+    fetchMyRecords().then(remote => {
+      if (remote.length) {
+        const localIds = new Set(records.map(r => String(r.id)));
+        const newRecs = remote.filter(r => !localIds.has(String(r.id)));
+        if (newRecs.length) {
+          records = [...records, ...newRecs].sort((a,b) => new Date(b.date) - new Date(a.date));
+          saveRecords();
+        }
+      }
+      // ローカルにあってFirestoreにない記録を同期
+      records.forEach(r => syncToFirestore(r));
+    });
+  });
 
   // ── State ──
   let records = loadRecords();
