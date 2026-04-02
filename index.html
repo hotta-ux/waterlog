@@ -34,7 +34,7 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      padding-bottom: 72px;
+      padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
     }
 
     /* Header */
@@ -89,18 +89,14 @@
       .ppm-slider::-webkit-slider-thumb { width: 32px; height: 32px; }
       .slider-container { margin: 8px 0 2px; }
 
-      /* Bottom nav safe area */
-      body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-      .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+      /* Toast position */
+      .toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
 
-      /* Hide bottom nav when keyboard is open */
+      /* Hide nav when keyboard is open */
       @media (max-height: 500px) {
-        .bottom-nav { display: none; }
+        .top-nav { display: none; }
         body { padding-bottom: 0; }
       }
-
-      /* Toast above bottom nav */
-      .toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
 
       /* Month nav compact */
       .month-nav { padding: 6px 2px; margin-bottom: 8px; }
@@ -125,13 +121,14 @@
     .container { max-width: 480px; margin: 0 auto; padding: 16px; }
     .container.map-active { max-width: 100%; padding: 0; }
 
-    /* Bottom Nav */
-    .bottom-nav {
-      position: fixed; bottom: 0; left: 0; right: 0;
+    /* Nav - default: bottom (mobile) */
+    .top-nav {
       background: white;
       display: flex;
+      position: fixed; bottom: 0; left: 0; right: 0;
       border-top: 1px solid var(--border);
       z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
 
     .nav-btn {
@@ -153,6 +150,20 @@
 
     .nav-btn svg { width: 22px; height: 22px; }
     .nav-btn span { font-size: 10px; font-weight: 600; }
+
+    /* Desktop: nav moves to top */
+    @media (min-width: 768px) {
+      .top-nav {
+        position: sticky; top: 0; bottom: auto;
+        border-top: none; border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+      }
+      .nav-btn.active::before {
+        top: auto; bottom: 0;
+        border-radius: 2px 2px 0 0;
+      }
+      body { padding-bottom: 0; }
+    }
 
     .tab-content { display: none; }
     .tab-content.active { display: block; }
@@ -414,7 +425,10 @@
     .data-btn:hover { border-color: var(--primary); background: var(--primary-light); }
 
     /* Map */
-    #map { width: 100%; height: calc(100vh - 130px); }
+    #map { width: 100%; height: calc(100vh - 160px); }
+    @media (min-width: 768px) {
+      #map { height: calc(100vh - 130px); }
+    }
 
     .map-filter-bar {
       display: flex; gap: 6px; padding: 12px 16px; background: var(--bg);
@@ -588,6 +602,25 @@
   <div class="header-sub">あなたのコーヒーを決めるのは、水だ。</div>
 </header>
 
+<nav class="top-nav">
+  <button class="nav-btn active" data-tab="record">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+    <span>記録</span>
+  </button>
+  <button class="nav-btn" data-tab="map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+    <span>マップ</span>
+  </button>
+  <button class="nav-btn" data-tab="history">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    <span>履歴</span>
+  </button>
+  <button class="nav-btn" data-tab="stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>統計</span>
+  </button>
+</nav>
+
 <div class="container" id="main-container">
   <!-- Record -->
   <div class="tab-content active" id="tab-record" style="padding:0 16px 16px;">
@@ -678,25 +711,7 @@
   </div>
 </div>
 
-<!-- Bottom Nav -->
-<nav class="bottom-nav">
-  <button class="nav-btn active" data-tab="record">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
-    <span>記録</span>
-  </button>
-  <button class="nav-btn" data-tab="map">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-    <span>マップ</span>
-  </button>
-  <button class="nav-btn" data-tab="history">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-    <span>履歴</span>
-  </button>
-  <button class="nav-btn" data-tab="stats">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-    <span>統計</span>
-  </button>
-</nav>
+<!-- Nav moved to top -->
 
 <!-- Share Overlay -->
 <div class="share-overlay" id="share-overlay" onclick="if(event.target===this)closeShare()">
