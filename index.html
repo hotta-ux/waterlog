@@ -364,13 +364,16 @@
     }
 
     .action-btn {
-      padding: 4px 12px; border: none; border-radius: 6px;
-      font-size: 11px; font-weight: 500; cursor: pointer;
+      padding: 10px 16px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
       transition: all 0.2s;
+      -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+      touch-action: manipulation;
+      user-select: none;
     }
 
-    .action-btn.share { color: var(--primary); background: rgba(74,158,206,0.08); }
-    .action-btn.del { color: #bbb; background: rgba(0,0,0,0.03); }
+    .action-btn.share { color: white; background: var(--primary); }
+    .action-btn.del { color: #999; background: rgba(0,0,0,0.05); }
 
     .empty-state { text-align: center; padding: 40px 20px; color: var(--text-light); }
     .empty-state .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
@@ -716,20 +719,20 @@
 <!-- Nav moved to top -->
 
 <!-- Share Overlay -->
-<div class="share-overlay" id="share-overlay" onclick="if(event.target===this)closeShare()">
+<div class="share-overlay" id="share-overlay">
   <div class="share-card-container">
     <div class="share-card" id="share-card-inner"></div>
     <div class="share-actions">
       <div class="share-actions-row">
-        <button class="share-btn ig-btn" onclick="nativeShare()">Stories</button>
-        <button class="share-btn x-btn" onclick="shareToX()">X</button>
-        <button class="share-btn line-btn" onclick="shareToLINE()">LINE</button>
+        <button class="share-btn ig-btn" id="btn-ig">Stories</button>
+        <button class="share-btn x-btn" id="btn-x">X</button>
+        <button class="share-btn line-btn" id="btn-line">LINE</button>
       </div>
       <div class="share-actions-row">
-        <button class="share-btn save-btn" onclick="saveShareImage()">画像を保存</button>
-        <button class="share-btn copy-btn" onclick="copyShareText()">テキストコピー</button>
+        <button class="share-btn save-btn" id="btn-save">画像を保存</button>
+        <button class="share-btn copy-btn" id="btn-copy">テキストコピー</button>
       </div>
-      <button class="share-btn close-btn" onclick="closeShare()">閉じる</button>
+      <button class="share-btn close-btn" id="btn-close">閉じる</button>
     </div>
   </div>
 </div>
@@ -1317,11 +1320,20 @@
           </div>
         </div>
         <div class="record-actions">
-          <button class="action-btn share" onclick="openShare('${r.id}')">↗ シェア</button>
-          <button class="action-btn del" onclick="deleteRecord('${r.id}')">× 削除</button>
+          <button class="action-btn share" data-share-id="${r.id}">↗ シェア</button>
+          <button class="action-btn del" data-del-id="${r.id}">× 削除</button>
         </div>
       </div>`;
     }).join('');
+    // イベント委譲でボタンをバインド
+    list.querySelectorAll('.action-btn.share').forEach(btn => {
+      btn.addEventListener('click', () => openShare(btn.dataset.shareId));
+      btn.addEventListener('touchend', (e) => { e.preventDefault(); openShare(btn.dataset.shareId); });
+    });
+    list.querySelectorAll('.action-btn.del').forEach(btn => {
+      btn.addEventListener('click', () => deleteRecord(btn.dataset.delId));
+      btn.addEventListener('touchend', (e) => { e.preventDefault(); deleteRecord(btn.dataset.delId); });
+    });
   }
 
   // ── Sparkline ──
@@ -1448,6 +1460,26 @@
 
   document.getElementById('store-name').addEventListener('input',updatePrevDiff);
   updateAutoComplete(); updateJudge(0);
+
+  // ── シェアオーバーレイのイベント ──
+  function bindShare(id, fn) {
+    const el = document.getElementById(id);
+    el.addEventListener('click', fn);
+    el.addEventListener('touchend', (e) => { e.preventDefault(); fn(); });
+  }
+  bindShare('btn-ig', nativeShare);
+  bindShare('btn-x', shareToX);
+  bindShare('btn-line', shareToLINE);
+  bindShare('btn-save', saveShareImage);
+  bindShare('btn-copy', copyShareText);
+  bindShare('btn-close', closeShare);
+  // オーバーレイ背景タップで閉じる
+  document.getElementById('share-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeShare();
+  });
+  document.getElementById('share-overlay').addEventListener('touchend', (e) => {
+    if (e.target === e.currentTarget) { e.preventDefault(); closeShare(); }
+  });
 </script>
 
 </body>
