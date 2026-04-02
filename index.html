@@ -812,13 +812,15 @@
     try { await db.collection('records').doc(String(id)).delete(); } catch {}
   }
 
-  // ── PWA ──
+  // ── SW完全クリア ──
   if ('serviceWorker' in navigator) {
-    // 古いSWのキャッシュを強制削除
-    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+    // 全キャッシュ削除
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+    // 全SW登録解除
     navigator.serviceWorker.getRegistrations().then(regs => {
-      regs.forEach(r => r.update());
+      regs.forEach(r => r.unregister());
     });
+    // 新しいSW登録（自己破壊型）
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
