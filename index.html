@@ -455,11 +455,13 @@
 
     /* Share Card */
     .share-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-      z-index: 500; display: none; align-items: center; justify-content: center;
-      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 9999; display: none;
+      align-items: center; justify-content: center;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
     }
-    .share-overlay.active { display: flex; }
+    .share-overlay.active { display: flex !important; }
 
     .share-card-container {
       width: 300px; max-width: 85vw;
@@ -812,6 +814,11 @@
 
   // ── PWA ──
   if ('serviceWorker' in navigator) {
+    // 古いSWのキャッシュを強制削除
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(r => r.update());
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
