@@ -1017,7 +1017,7 @@
   }
 
   function openShare(id) {
-    const r = records.find(x=>x.id===id);
+    const r = records.find(x=>String(x.id)===String(id));
     if(!r) { showToast('記録が見つかりません'); return; }
     shareData = r;
     const j = judge(r.ppm), color = ppmColor(r.ppm);
@@ -1195,7 +1195,7 @@
   // ── Delete ──
   function deleteRecord(id) {
     if (!confirm('この記録を削除しますか？')) return;
-    records = records.filter(r=>r.id!==id); saveRecords(); renderRecords(); showToast('削除しました');
+    records = records.filter(r=>String(r.id)!==String(id)); saveRecords(); renderRecords(); showToast('削除しました');
     deleteFromFirestore(id);
   }
 
@@ -1317,8 +1317,8 @@
           </div>
         </div>
         <div class="record-actions">
-          <button class="action-btn share" onclick="openShare(${r.id})">↗ シェア</button>
-          <button class="action-btn del" onclick="deleteRecord(${r.id})">× 削除</button>
+          <button class="action-btn share" onclick="openShare('${r.id}')">↗ シェア</button>
+          <button class="action-btn del" onclick="deleteRecord('${r.id}')">× 削除</button>
         </div>
       </div>`;
     }).join('');
