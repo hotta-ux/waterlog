@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#4a9ece">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <title>WaterLog</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <style>
+    :root {
+      --bg: #f0f7fb;
+      --card: #ffffff;
+      --primary: #4a9ece;
+      --primary-dark: #3a7fa8;
+      --primary-light: #e8f4fa;
+      --accent: #7ec8e3;
+      --tap: #4a9ece;
+      --filtered: #34bfa0;
+      --text: #1a2a3a;
+      --text-light: #7a8a9a;
+      --border: #d8e8f0;
+      --danger: #e05a5a;
+      --warn: #e8a840;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Header */
+    header {
+      background: white;
+      padding: 16px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-top { display: flex; align-items: center; gap: 10px; }
+
+    .header-logo {
+      width: 32px; height: 32px;
+      background: var(--primary);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .header-top h1 { font-size: 17px; font-weight: 700; color: var(--text); }
+    .header-sub { font-size: 11px; color: var(--text-light); margin-top: 2px; margin-left: 42px; }
+
+    @media (max-width: 480px) {
+      /* Compact header */
+      header { padding: 10px 16px; }
+      .header-logo { width: 28px; height: 28px; }
+      .header-logo svg { width: 15px; height: 15px; }
+      .header-top h1 { font-size: 15px; }
+      .header-sub { display: none; }
+
+      /* Tighter form */
+      .form-card { padding: 16px; }
+      .form-group { margin-bottom: 12px; }
+      .form-group label { font-size: 11px; margin-bottom: 4px; }
+      .form-group input { padding: 10px 12px; font-size: 15px; }
+
+      /* Compact date */
+      .date-display { padding: 8px 12px; font-size: 13px; }
+
+      /* Smaller water toggle */
+      .water-type-btn { padding: 10px 8px; font-size: 13px; }
+
+      /* Compact PPM */
+      .ppm-input-area { padding: 4px 0; }
+      .ppm-tap-value { font-size: 44px; }
+      .ppm-edit-input { font-size: 44px; }
+      .ppm-judge { font-size: 11px; padding: 2px 10px; }
+
+      /* Bigger touch target for slider */
+      .ppm-slider::-webkit-slider-thumb { width: 32px; height: 32px; }
+      .slider-container { margin: 8px 0 2px; }
+
+      /* Toast position */
+      .toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
+
+      /* Hide nav when keyboard is open */
+      @media (max-height: 500px) {
+        .top-nav { display: none; }
+        body { padding-bottom: 0; }
+      }
+
+      /* Month nav compact */
+      .month-nav { padding: 6px 2px; margin-bottom: 8px; }
+      .month-nav .mn-label { font-size: 14px; }
+
+      /* Record cards */
+      .record-card { padding: 10px 12px; gap: 10px; }
+      .record-card .type-badge { width: 36px; height: 36px; font-size: 10px; }
+      .record-ppm .value { font-size: 20px; }
+
+      /* Stats */
+      .stats-grid { gap: 8px; }
+      .stat-card { padding: 12px; }
+      .stat-card .stat-value { font-size: 24px; }
+
+      /* Search */
+      .search-input { padding: 8px 12px; font-size: 13px; margin-bottom: 8px; }
+      .filter-chip { padding: 5px 12px; font-size: 12px; }
+    }
+
+    /* Container */
+    .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+    .container.map-active { max-width: 100%; padding: 0; }
+
+    /* Nav - default: bottom (mobile) */
+    .top-nav {
+      background: white;
+      display: flex;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      border-top: 1px solid var(--border);
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .nav-btn {
+      flex: 1; padding: 8px 0;
+      border: none; background: none; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      color: var(--text-light);
+      transition: color 0.2s;
+      position: relative;
+    }
+
+    .nav-btn.active { color: var(--primary); }
+
+    .nav-btn.active::before {
+      content: ''; position: absolute; top: 0;
+      left: 20%; right: 20%; height: 2.5px;
+      background: var(--primary); border-radius: 0 0 2px 2px;
+    }
+
+    .nav-btn svg { width: 22px; height: 22px; }
+    .nav-btn span { font-size: 10px; font-weight: 600; }
+
+    /* Desktop: nav moves to top */
+    @media (min-width: 768px) {
+      .top-nav {
+        position: sticky; top: 0; bottom: auto;
+        border-top: none; border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+      }
+      .nav-btn.active::before {
+        top: auto; bottom: 0;
+        border-radius: 2px 2px 0 0;
+      }
+      body { padding-bottom: 0; }
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Form */
+    .form-card {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .form-group { margin-bottom: 16px; }
+
+    .form-group label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: var(--text-light); margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+
+    .form-group input {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-size: 16px; background: white; color: var(--text);
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus { outline: none; border-color: var(--primary); }
+
+    .date-display {
+      display: flex; align-items: center; gap: 8px;
+      padding: 11px 14px;
+      background: var(--primary-light); border-radius: 10px;
+      font-size: 14px; color: var(--primary-dark); font-weight: 500;
+    }
+
+    /* Water type */
+    .water-type-toggle { display: flex; gap: 8px; }
+
+    .water-type-btn {
+      flex: 1; padding: 12px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      background: white; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.2s; text-align: center;
+    }
+
+    .water-type-btn.tap.selected {
+      border-color: var(--tap); background: rgba(74,158,206,0.08); color: var(--tap);
+    }
+
+    .water-type-btn.filtered.selected {
+      border-color: var(--filtered); background: rgba(52,191,160,0.08); color: var(--filtered);
+    }
+
+    /* PPM */
+    .ppm-input-area { text-align: center; padding: 8px 0; }
+
+    .ppm-tap-value {
+      font-size: 52px; font-weight: 700; color: var(--primary);
+      cursor: text; display: inline-block; min-width: 60px;
+      border-bottom: 2px dashed transparent; transition: border-color 0.2s;
+    }
+
+    .ppm-tap-value:hover { border-color: var(--accent); }
+    .ppm-tap-value .unit { font-size: 14px; font-weight: 400; color: var(--text-light); margin-left: 2px; }
+
+    .ppm-edit-input {
+      font-size: 52px; font-weight: 700; color: var(--primary);
+      text-align: center; width: 140px; border: none;
+      border-bottom: 2px solid var(--primary);
+      background: transparent; outline: none; font-family: inherit;
+    }
+
+    .ppm-judge {
+      display: inline-block; margin-top: 6px; padding: 3px 14px;
+      border-radius: 20px; font-size: 12px; font-weight: 600;
+    }
+
+    .ppm-judge.excellent { background: rgba(52,191,160,0.12); color: #1a9a7a; }
+    .ppm-judge.good { background: rgba(52,191,160,0.1); color: #28a880; }
+    .ppm-judge.ok { background: rgba(74,158,206,0.1); color: var(--primary-dark); }
+    .ppm-judge.caution { background: rgba(232,168,64,0.12); color: #b07820; }
+    .ppm-judge.high { background: rgba(224,90,90,0.1); color: var(--danger); }
+
+    .ppm-context { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+
+    .slider-container { position: relative; margin: 12px 0 4px; }
+
+    .optimal-zone {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      height: 8px; background: rgba(74,158,206,0.15);
+      border-radius: 4px; pointer-events: none; z-index: 1;
+    }
+
+    .optimal-label {
+      position: absolute; top: -14px;
+      font-size: 9px; color: var(--primary); white-space: nowrap;
+    }
+
+    .ppm-slider {
+      width: 100%; -webkit-appearance: none; height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(to right, #b8e6d8, var(--accent), var(--warn), var(--danger));
+      outline: none; position: relative; z-index: 2;
+    }
+
+    .ppm-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 26px; height: 26px;
+      border-radius: 50%; background: white;
+      border: 3px solid var(--primary); cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+
+    .ppm-range-labels {
+      display: flex; justify-content: space-between;
+      font-size: 10px; color: var(--text-light); margin-top: 4px;
+    }
+
+    .prev-diff { text-align: center; font-size: 12px; font-weight: 600; margin-top: 6px; }
+    .prev-diff.up { color: var(--danger); }
+    .prev-diff.down { color: var(--filtered); }
+    .prev-diff.same { color: var(--text-light); }
+
+    .submit-btn {
+      width: 100%; padding: 14px;
+      background: var(--primary); color: white;
+      border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .submit-btn:hover { background: var(--primary-dark); }
+    .submit-btn:active { transform: scale(0.98); }
+
+    /* Filters */
+    .filter-bar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+
+    .filter-chip {
+      padding: 6px 14px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: white;
+      font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+    }
+
+    .filter-chip.active {
+      border-color: var(--primary); background: var(--primary); color: white;
+    }
+
+    .search-input {
+      width: 100%; padding: 10px 14px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-size: 14px; background: white; margin-bottom: 12px;
+    }
+
+    .search-input:focus { outline: none; border-color: var(--primary); }
+
+    /* Record Card */
+    .record-card {
+      background: white; border-radius: 12px;
+      padding: 14px 16px 10px; margin-bottom: 8px;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .record-card .record-main {
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .record-card .type-badge {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: white; flex-shrink: 0;
+    }
+
+    .type-badge.tap { background: var(--tap); }
+    .type-badge.filtered { background: var(--filtered); }
+
+    .record-info { flex: 1; min-width: 0; }
+    .record-info .store { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .record-info .location { font-size: 12px; color: var(--text-light); margin-top: 2px; }
+    .record-info .date { font-size: 11px; color: var(--accent); margin-top: 2px; }
+
+    .record-ppm { text-align: right; flex-shrink: 0; }
+    .record-ppm .value { font-size: 22px; font-weight: 700; }
+    .record-ppm .unit { font-size: 10px; color: var(--text-light); }
+    .record-ppm .judge-sm { font-size: 9px; font-weight: 600; display: block; margin-top: 1px; }
+
+    .record-ppm.low .value { color: var(--filtered); }
+    .record-ppm.mid .value { color: var(--primary); }
+    .record-ppm.high .value { color: var(--danger); }
+
+    .record-actions {
+      display: flex; gap: 6px; margin-top: 8px;
+      padding-top: 8px; border-top: 1px solid var(--border);
+      justify-content: flex-end;
+    }
+
+    .action-btn {
+      padding: 10px 16px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    .action-btn.share { color: white; background: var(--primary); }
+    .action-btn.del { color: #999; background: rgba(0,0,0,0.05); }
+
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--text-light); }
+    .empty-state .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+    .empty-state p { font-size: 14px; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+
+    .stat-card {
+      background: white; border-radius: 12px; padding: 16px;
+      text-align: center; border: 1px solid var(--border);
+    }
+
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .stat-label { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+    .stat-card.wide { grid-column: 1 / -1; }
+
+    .trend-section { margin-top: 20px; }
+    .trend-section h3 { font-size: 14px; color: var(--text); margin-bottom: 10px; font-weight: 600; }
+
+    .trend-chart {
+      background: white; border-radius: 12px; padding: 16px;
+      border: 1px solid var(--border); margin-bottom: 10px;
+    }
+
+    .trend-chart .chart-title {
+      font-size: 13px; font-weight: 600; margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+
+    .trend-chart .arrow { font-size: 12px; }
+    .trend-chart .arrow.up { color: var(--danger); }
+    .trend-chart .arrow.down { color: var(--filtered); }
+
+    .sparkline { width: 100%; height: 50px; }
+
+    .filter-alert {
+      background: #fff8ec; border: 1px solid #f0d888;
+      border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
+    }
+
+    .filter-alert .alert-title { font-weight: 700; color: #8a6d20; margin-bottom: 4px; font-size: 13px; }
+    .filter-alert .alert-body { color: #8a6d20; font-size: 12px; }
+
+    .data-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+    .data-btn {
+      flex: 1; padding: 10px; border: 1.5px solid var(--border);
+      border-radius: 10px; background: white; font-size: 13px;
+      font-weight: 600; cursor: pointer; text-align: center;
+      color: var(--primary); transition: all 0.2s;
+    }
+
+    .data-btn:hover { border-color: var(--primary); background: var(--primary-light); }
+
+    /* Map */
+    #map { width: 100%; height: calc(100vh - 160px); }
+    @media (min-width: 768px) {
+      #map { height: calc(100vh - 130px); }
+    }
+
+    .map-filter-bar {
+      display: flex; gap: 6px; padding: 12px 16px; background: var(--bg);
+    }
+
+    .ppm-marker {
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; color: white; font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25); border: 3px solid white;
+      text-align: center; line-height: 1;
+    }
+
+    .map-popup .store { font-weight: 700; font-size: 14px; }
+    .map-popup .meta { font-size: 12px; color: #666; margin-top: 4px; }
+    .map-popup .ppm-big { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    .map-popup .ppm-big span { font-size: 12px; font-weight: 400; color: #999; }
+
+    /* Share Card */
+    .share-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 9999; display: none;
+      align-items: center; justify-content: center;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    .share-overlay.active { display: flex !important; }
+
+    .share-card-container {
+      width: 300px; max-width: 85vw;
+    }
+
+    .share-card {
+      position: relative; overflow: hidden;
+      border-radius: 24px; padding: 40px 28px 32px; text-align: center;
+      margin-bottom: 16px;
+      /* デフォルトグラデーション（JSで動的に変更） */
+      background: linear-gradient(160deg, #0a1628, #1a3a5c, #2a6a8a);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .share-card::before {
+      content: ''; position: absolute; top: -50%; right: -50%;
+      width: 100%; height: 100%;
+      background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .share-card::after {
+      content: ''; position: absolute; bottom: -30%; left: -30%;
+      width: 80%; height: 80%;
+      background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .share-card .sc-icon { font-size: 28px; margin-bottom: 8px; }
+    .share-card .sc-type-line {
+      display: inline-block; padding: 4px 16px; border-radius: 20px;
+      font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(4px); margin-bottom: 16px;
+    }
+    .share-card .sc-ppm {
+      font-size: 72px; font-weight: 800; color: #fff;
+      line-height: 1; margin: 0; letter-spacing: -2px;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    }
+    .share-card .sc-ppm span {
+      font-size: 20px; font-weight: 500; letter-spacing: 0; opacity: 0.7;
+    }
+    .share-card .sc-judge {
+      font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9);
+      margin-top: 8px; letter-spacing: 1px;
+    }
+    .share-card .sc-divider {
+      width: 40px; height: 2px; background: rgba(255,255,255,0.2);
+      margin: 20px auto; border-radius: 1px;
+    }
+    .share-card .sc-store {
+      font-size: 16px; font-weight: 700; color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .share-card .sc-location {
+      font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px;
+    }
+    .share-card .sc-date {
+      font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 16px;
+    }
+    .share-card .sc-brand-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 6px; margin-top: 12px;
+    }
+    .share-card .sc-brand-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: rgba(255,255,255,0.4);
+    }
+    .share-card .sc-brand {
+      font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5);
+      letter-spacing: 2px; text-transform: uppercase;
+    }
+
+    .share-actions { display: flex; flex-direction: column; gap: 8px; }
+    .share-actions-row { display: flex; gap: 8px; }
+
+    .share-btn {
+      flex: 1; padding: 14px; border: none; border-radius: 14px;
+      font-size: 13px; font-weight: 600; cursor: pointer; color: white;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    .share-btn:active { transform: scale(0.96); opacity: 0.9; }
+    .share-btn.x-btn { background: #000; }
+    .share-btn.line-btn { background: #06c755; }
+    .share-btn.ig-btn { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
+    .share-btn.copy-btn { background: rgba(255,255,255,0.15); backdrop-filter: blur(4px); }
+    .share-btn.save-btn { background: rgba(255,255,255,0.15); backdrop-filter: blur(4px); }
+    .share-btn.close-btn { background: transparent; color: rgba(255,255,255,0.5); font-size: 14px; padding: 10px; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 80px; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--primary); color: white;
+      padding: 12px 24px; border-radius: 10px;
+      font-size: 14px; font-weight: 500;
+      box-shadow: 0 4px 12px rgba(74,158,206,0.3);
+      transition: transform 0.3s ease; z-index: 1000;
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.milestone { background: linear-gradient(135deg, var(--primary), var(--accent)); }
+
+    #import-file { display: none; }
+
+    /* Month Nav */
+    .month-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      background: white; border-radius: 12px; padding: 8px 4px;
+      margin-bottom: 12px; border: 1px solid var(--border);
+    }
+
+    .month-nav .mn-btn {
+      width: 36px; height: 36px; border: none; background: none;
+      color: var(--primary); font-size: 18px; cursor: pointer;
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .month-nav .mn-btn:hover { background: var(--primary-light); }
+
+    .month-nav .mn-label {
+      font-size: 15px; font-weight: 600; color: var(--text);
+    }
+
+    .month-nav .mn-today {
+      font-size: 11px; color: var(--primary); font-weight: 600;
+      cursor: pointer; padding: 4px 10px; border-radius: 6px;
+      border: 1px solid var(--primary); background: none;
+      transition: all 0.2s;
+    }
+
+    .month-nav .mn-today:hover { background: var(--primary); color: white; }
+    .month-nav .mn-today.hidden { visibility: hidden; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="header-logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M17 8h1a4 4 0 110 8h-1"/><path d="M3 8h14v9a4 4 0 01-4 4H7a4 4 0 01-4-4V8z"/></svg>
+    </div>
+    <h1>WaterLog</h1>
+  </div>
+  <div class="header-sub">あなたのコーヒーを決めるのは、水だ。 <span style="opacity:0.4">v3</span></div>
+</header>
+
+<nav class="top-nav">
+  <button class="nav-btn active" data-tab="record">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+    <span>記録</span>
+  </button>
+  <button class="nav-btn" data-tab="map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+    <span>マップ</span>
+  </button>
+  <button class="nav-btn" data-tab="history">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    <span>履歴</span>
+  </button>
+  <button class="nav-btn" data-tab="stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>統計</span>
+  </button>
+</nav>
+
+<div class="container" id="main-container">
+  <!-- Record -->
+  <div class="tab-content active" id="tab-record" style="padding:0 16px 16px;">
+    <div class="form-card">
+      <div class="form-group">
+        <label>日付</label>
+        <div class="date-display">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span id="current-date"></span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>水の種類</label>
+        <div class="water-type-toggle">
+          <button class="water-type-btn tap selected" data-type="tap" onclick="selectWaterType('tap')">水道水</button>
+          <button class="water-type-btn filtered" data-type="filtered" onclick="selectWaterType('filtered')">浄水</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>店舗名（任意）</label>
+        <input type="text" id="store-name" placeholder="例: ELYSIA COFFEE AKASAKA" list="store-list">
+        <datalist id="store-list"></datalist>
+      </div>
+
+      <div class="form-group">
+        <label>場所</label>
+        <input type="text" id="location" placeholder="例: 東京都港区赤坂" list="location-list">
+        <datalist id="location-list"></datalist>
+      </div>
+
+      <div class="form-group">
+        <label>TDS (PPM)</label>
+        <div class="ppm-input-area">
+          <div class="ppm-tap-value" id="ppm-tap" onclick="startPPMEdit()">
+            <span id="ppm-value">0</span><span class="unit">ppm</span>
+          </div>
+          <div id="ppm-edit-container" style="display:none;">
+            <input type="number" class="ppm-edit-input" id="ppm-edit" min="0" max="300" onblur="endPPMEdit()" onkeydown="if(event.key==='Enter')endPPMEdit()">
+          </div>
+          <div><span class="ppm-judge" id="ppm-judge"></span></div>
+          <div class="ppm-context" id="ppm-context" style="display:none;"></div>
+        </div>
+        <div class="slider-container">
+          <div class="optimal-zone" id="optimal-zone"><span class="optimal-label">推奨帯</span></div>
+          <input type="range" class="ppm-slider" id="ppm-slider" min="0" max="300" value="0" oninput="updatePPM(this.value)">
+        </div>
+        <div class="ppm-range-labels"><span>0</span><span>50</span><span>100</span><span>150</span><span>200</span><span>250</span><span>300</span></div>
+        <div class="prev-diff" id="prev-diff"></div>
+      </div>
+
+      <div class="form-group">
+        <label>メモ（任意）</label>
+        <input type="text" id="memo" placeholder="例: 朝一の計測">
+      </div>
+
+      <button class="submit-btn" onclick="saveRecord()">記録を保存</button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="tab-content" id="tab-map">
+    <div class="map-filter-bar">
+      <button class="filter-chip active" data-filter="all" onclick="setMapFilter('all')">すべて</button>
+      <button class="filter-chip" data-filter="tap" onclick="setMapFilter('tap')">水道水</button>
+      <button class="filter-chip" data-filter="filtered" onclick="setMapFilter('filtered')">浄水</button>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- History -->
+  <div class="tab-content" id="tab-history" style="padding:0 16px 16px;">
+    <div class="month-nav" id="history-month-nav"></div>
+    <input type="text" class="search-input" id="search" placeholder="店舗名・場所で検索..." oninput="debouncedRenderRecords()">
+    <div class="filter-bar">
+      <button class="filter-chip active" data-filter="all" onclick="setFilter('all')">すべて</button>
+      <button class="filter-chip" data-filter="tap" onclick="setFilter('tap')">水道水</button>
+      <button class="filter-chip" data-filter="filtered" onclick="setFilter('filtered')">浄水</button>
+    </div>
+    <div id="records-list"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="tab-content" id="tab-stats" style="padding:0 16px 16px;">
+    <div class="month-nav" id="stats-month-nav"></div>
+    <div id="stats-content"></div>
+  </div>
+</div>
+
+<!-- Nav moved to top -->
+
+<!-- Share Overlay -->
+<div class="share-overlay" id="share-overlay" onclick="if(event.target===this)closeShare()">
+  <div class="share-card-container">
+    <div class="share-card" id="share-card-inner"></div>
+    <div class="share-actions">
+      <div class="share-actions-row">
+        <button class="share-btn ig-btn" onclick="nativeShare()">Stories</button>
+        <button class="share-btn x-btn" onclick="shareToX()">X</button>
+        <button class="share-btn line-btn" onclick="shareToLINE()">LINE</button>
+      </div>
+      <div class="share-actions-row">
+        <button class="share-btn save-btn" onclick="saveShareImage()">画像を保存</button>
+        <button class="share-btn copy-btn" onclick="copyShareText()">テキストコピー</button>
+      </div>
+      <button class="share-btn close-btn" onclick="closeShare()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="import-file" accept=".json" onchange="importData(event)">
+
+<script>
+  // ── Firebase ──
+  firebase.initializeApp({
+    apiKey: "AIzaSyCIV9S7zgxwQWgZPLXQdrZGyzooctcYZ7s",
+    authDomain: "waterlog-5e38a.firebaseapp.com",
+    projectId: "waterlog-5e38a",
+    storageBucket: "waterlog-5e38a.firebasestorage.app",
+    messagingSenderId: "16023776447",
+    appId: "1:16023776447:web:4ae984df35aec1ceb06a0a"
+  });
+  const db = firebase.firestore();
+  let currentUserId = null;
+
+  // 匿名認証でユーザーIDを取得
+  async function initAuth() {
+    try {
+      const result = await firebase.auth().signInAnonymously();
+      currentUserId = result.user.uid;
+    } catch (e) {
+      // フォールバック: localStorageベースのID
+      currentUserId = localStorage.getItem('waterlog_uid');
+      if (!currentUserId) {
+        currentUserId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        localStorage.setItem('waterlog_uid', currentUserId);
+      }
+    }
+  }
+
+  // Firestoreに記録を保存（ユーザーID付き）
+  async function syncToFirestore(record) {
+    try {
+      await db.collection('records').doc(String(record.id)).set({
+        uid: currentUserId || 'unknown',
+        store: record.store || '',
+        location: record.location,
+        ppm: record.ppm,
+        type: record.type,
+        lat: record.lat || null,
+        lng: record.lng || null,
+        date: record.date,
+        memo: record.memo || ''
+      });
+    } catch (e) { console.warn('Firestore sync failed:', e); }
+  }
+
+  // Firestoreから全レコードを取得（マップ用: 全ユーザー）
+  async function fetchAllRecords() {
+    try {
+      const snap = await db.collection('records').orderBy('date', 'desc').limit(500).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) { console.warn('Firestore fetch failed:', e); return []; }
+  }
+
+  // Firestoreから自分のレコードを取得（履歴用）
+  async function fetchMyRecords() {
+    if (!currentUserId) return [];
+    try {
+      const snap = await db.collection('records')
+        .where('uid', '==', currentUserId)
+        .orderBy('date', 'desc').limit(200).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) { console.warn('Firestore fetch my records failed:', e); return []; }
+  }
+
+  // Firestoreから削除
+  async function deleteFromFirestore(id) {
+    try { await db.collection('records').doc(String(id)).delete(); } catch {}
+  }
+
+  // ── SW完全クリア ──
+  if ('serviceWorker' in navigator) {
+    // 全キャッシュ削除
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+    // 全SW登録解除
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(r => r.unregister());
+    });
+    // 新しいSW登録（自己破壊型）
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  // ── Auth初期化 ──
+  initAuth().then(() => {
+    // 認証完了後にFirestoreから自分のレコードを同期
+    fetchMyRecords().then(remote => {
+      if (remote.length) {
+        const localIds = new Set(records.map(r => String(r.id)));
+        const newRecs = remote.filter(r => !localIds.has(String(r.id)));
+        if (newRecs.length) {
+          records = [...records, ...newRecs].sort((a,b) => new Date(b.date) - new Date(a.date));
+          saveRecords();
+        }
+      }
+      // ローカルにあってFirestoreにない記録を同期
+      records.forEach(r => syncToFirestore(r));
+    });
+  });
+
+  // ── State ──
+  let records = loadRecords();
+  let selectedType = 'tap';
+  let currentFilter = 'all';
+  let mapFilter = 'all';
+  let map = null;
+  let markerLayer = null;
+  let geocodeCache = JSON.parse(localStorage.getItem('geocodeCache') || '{}');
+  let shareData = null;
+
+  // Month navigation state
+  const now = new Date();
+  let historyMonth = { y: now.getFullYear(), m: now.getMonth() };
+  let statsMonth = { y: now.getFullYear(), m: now.getMonth() };
+
+  function isCurrentMonth(mo) { const n=new Date(); return mo.y===n.getFullYear()&&mo.m===n.getMonth(); }
+
+  function monthLabel(mo) { return `${mo.y}年${mo.m+1}月`; }
+
+  function shiftMonth(mo, delta) { let m=mo.m+delta, y=mo.y; if(m<0){m=11;y--;}if(m>11){m=0;y++;} return {y,m}; }
+
+  function filterByMonth(recs, mo) {
+    return recs.filter(r => { const d=new Date(r.date); return d.getFullYear()===mo.y && d.getMonth()===mo.m; });
+  }
+
+  function renderMonthNav(elId, mo, onShift, onToday) {
+    const el = document.getElementById(elId);
+    const cur = isCurrentMonth(mo);
+    el.innerHTML = `
+      <button class="mn-btn" onclick="(${onShift})(-1)">‹</button>
+      <span class="mn-label">${monthLabel(mo)}</span>
+      <button class="mn-today ${cur?'hidden':''}" onclick="(${onToday})()">今月</button>
+      <button class="mn-btn" onclick="(${onShift})(1)">›</button>`;
+  }
+
+  function shiftHistoryMonth(delta) {
+    historyMonth = shiftMonth(historyMonth, delta);
+    renderMonthNav('history-month-nav', historyMonth, 'shiftHistoryMonth', 'resetHistoryMonth');
+    renderRecords();
+  }
+
+  function resetHistoryMonth() {
+    const n=new Date(); historyMonth={y:n.getFullYear(),m:n.getMonth()};
+    renderMonthNav('history-month-nav', historyMonth, 'shiftHistoryMonth', 'resetHistoryMonth');
+    renderRecords();
+  }
+
+  function shiftStatsMonth(delta) {
+    statsMonth = shiftMonth(statsMonth, delta);
+    renderMonthNav('stats-month-nav', statsMonth, 'shiftStatsMonth', 'resetStatsMonth');
+    renderStats();
+  }
+
+  function resetStatsMonth() {
+    const n=new Date(); statsMonth={y:n.getFullYear(),m:n.getMonth()};
+    renderMonthNav('stats-month-nav', statsMonth, 'shiftStatsMonth', 'resetStatsMonth');
+    renderStats();
+  }
+
+  function loadRecords() {
+    try {
+      const d = JSON.parse(localStorage.getItem('waterRecords') || '[]');
+      return d.filter(r => r && r.id && r.store && r.location && typeof r.ppm === 'number' && r.date);
+    } catch { return []; }
+  }
+
+  function saveRecords() {
+    try { localStorage.setItem('waterRecords', JSON.stringify(records)); }
+    catch { showToast('ストレージ容量不足です'); }
+  }
+
+  // ── Coords ──
+  const KC = {
+    '北海道':[43.06,141.35],'札幌':[43.06,141.35],'青森':[40.82,140.74],'仙台':[38.27,140.87],
+    '秋田':[39.72,140.10],'山形':[38.24,140.33],'福島':[37.75,140.47],'水戸':[36.34,140.45],
+    '宇都宮':[36.57,139.88],'前橋':[36.39,139.06],'埼玉':[35.86,139.65],'さいたま':[35.86,139.65],
+    '千葉':[35.61,140.12],'東京':[35.68,139.69],'渋谷':[35.66,139.70],'新宿':[35.69,139.70],
+    '品川':[35.63,139.74],'池袋':[35.73,139.71],'銀座':[35.67,139.76],'六本木':[35.66,139.73],
+    '表参道':[35.67,139.71],'中目黒':[35.64,139.70],'自由が丘':[35.61,139.67],
+    '吉祥寺':[35.70,139.58],'下北沢':[35.66,139.67],'恵比寿':[35.65,139.71],
+    '代官山':[35.65,139.70],'目黒':[35.63,139.72],'秋葉原':[35.70,139.77],
+    '浅草':[35.71,139.80],'上野':[35.71,139.77],'蔵前':[35.70,139.79],
+    '清澄白河':[35.68,139.80],'三軒茶屋':[35.64,139.67],'代々木上原':[35.67,139.68],
+    '神保町':[35.70,139.76],'神楽坂':[35.70,139.74],'中野':[35.71,139.66],
+    '高円寺':[35.71,139.65],'西荻窪':[35.70,139.60],
+    '横浜':[35.45,139.64],'鎌倉':[35.32,139.55],'神奈川':[35.45,139.64],
+    '新潟':[37.90,139.02],'金沢':[36.56,136.65],'長野':[36.24,138.18],
+    '名古屋':[35.18,136.91],'静岡':[34.98,138.38],'京都':[35.01,135.77],
+    '大阪':[34.69,135.50],'梅田':[34.70,135.50],'難波':[34.66,135.50],
+    '神戸':[34.69,135.18],'奈良':[34.69,135.83],'広島':[34.40,132.46],
+    '福岡':[33.59,130.40],'博多':[33.59,130.42],'天神':[33.59,130.40],
+    '熊本':[32.79,130.74],'鹿児島':[31.56,130.56],'那覇':[26.34,127.68],'沖縄':[26.34,127.80],
+  };
+
+  // ── Date ──
+  function updateDate() {
+    const n = new Date(), w = ['日','月','火','水','木','金','土'][n.getDay()];
+    const p = v => String(v).padStart(2,'0');
+    document.getElementById('current-date').textContent =
+      `${n.getFullYear()}年${p(n.getMonth()+1)}月${p(n.getDate())}日 (${w}) ${p(n.getHours())}:${p(n.getMinutes())}`;
+  }
+  updateDate(); setInterval(updateDate, 30000);
+
+  // ── Water Type ──
+  function selectWaterType(t) {
+    selectedType = t;
+    document.querySelectorAll('.water-type-btn').forEach(b => b.classList.toggle('selected', b.dataset.type === t));
+    updatePrevDiff();
+  }
+
+  // ── PPM Judge ──
+  function judge(ppm) {
+    if (ppm <= 30) return { l: '超軟水', c: 'excellent' };
+    if (ppm <= 75) return { l: '良好', c: 'good' };
+    if (ppm <= 150) return { l: '適正', c: 'ok' };
+    if (ppm <= 250) return { l: '注意', c: 'caution' };
+    return { l: '要検討', c: 'high' };
+  }
+
+  function updateJudge(ppm) {
+    const j = judge(ppm);
+    const el = document.getElementById('ppm-judge');
+    el.textContent = j.l; el.className = 'ppm-judge ' + j.c;
+  }
+
+  // ── PPM Input ──
+  function updatePPM(v) {
+    v = parseInt(v)||0;
+    document.getElementById('ppm-value').textContent = v;
+    updateJudge(v); updatePrevDiff();
+  }
+
+  function startPPMEdit() {
+    const cur = parseInt(document.getElementById('ppm-value').textContent)||0;
+    document.getElementById('ppm-tap').style.display = 'none';
+    document.getElementById('ppm-edit-container').style.display = 'block';
+    const inp = document.getElementById('ppm-edit');
+    inp.value = cur; inp.focus(); inp.select();
+  }
+
+  function endPPMEdit() {
+    const v = Math.max(0, Math.min(300, parseInt(document.getElementById('ppm-edit').value)||0));
+    document.getElementById('ppm-edit-container').style.display = 'none';
+    document.getElementById('ppm-tap').style.display = 'inline-block';
+    document.getElementById('ppm-value').textContent = v;
+    document.getElementById('ppm-slider').value = v;
+    updateJudge(v); updatePrevDiff();
+  }
+
+  function updatePrevDiff() {
+    const el = document.getElementById('prev-diff');
+    const store = document.getElementById('store-name').value.trim();
+    if (!store) { el.textContent = ''; return; }
+    const prev = records.find(r => r.store === store && r.type === selectedType);
+    if (!prev) { el.textContent = ''; return; }
+    const cur = parseInt(document.getElementById('ppm-value').textContent)||0;
+    const d = cur - prev.ppm;
+    if (d === 0) { el.className = 'prev-diff same'; el.textContent = `前回同値 (${prev.ppm}ppm)`; }
+    else if (d > 0) { el.className = 'prev-diff up'; el.textContent = `前回比 +${d}ppm`; }
+    else { el.className = 'prev-diff down'; el.textContent = `前回比 ${d}ppm`; }
+  }
+
+  // ── Optimal Zone ──
+  (function() {
+    const z = document.getElementById('optimal-zone');
+    z.style.left = (75/300*100)+'%'; z.style.width = ((150-75)/300*100)+'%';
+  })();
+
+  // ── Geocode ──
+  function geocode(loc) {
+    if (geocodeCache[loc]) return Promise.resolve(geocodeCache[loc]);
+    for (const [k,v] of Object.entries(KC)) {
+      if (loc.includes(k)) { geocodeCache[loc]=v; try{localStorage.setItem('geocodeCache',JSON.stringify(geocodeCache))}catch{} return Promise.resolve(v); }
+    }
+    return fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(loc)}&countrycodes=jp&limit=1`,
+      {headers:{'User-Agent':'CoffeeWaterApp/1.0'}})
+      .then(r=>r.json()).then(d=>{
+        if(d.length){const c=[parseFloat(d[0].lat),parseFloat(d[0].lon)];geocodeCache[loc]=c;try{localStorage.setItem('geocodeCache',JSON.stringify(geocodeCache))}catch{} return c;}
+        return null;
+      }).catch(()=>null);
+  }
+
+  // ── Save ──
+  async function saveRecord() {
+    const store = document.getElementById('store-name').value.trim();
+    const loc = document.getElementById('location').value.trim();
+    const ppm = parseInt(document.getElementById('ppm-value').textContent)||0;
+    const memo = document.getElementById('memo').value.trim();
+    if (!loc) { showToast('場所を入力してください'); return; }
+    showToast('保存中...');
+    const coords = await geocode(loc);
+    const rec = { id: Date.now(), type: selectedType, store: store||loc, location: loc, ppm, memo,
+      lat: coords?coords[0]:null, lng: coords?coords[1]:null, date: new Date().toISOString() };
+    records.unshift(rec);
+    saveRecords(); updateAutoComplete();
+    syncToFirestore(rec);
+    document.getElementById('ppm-slider').value = 0;
+    document.getElementById('ppm-value').textContent = '0';
+    document.getElementById('memo').value = '';
+    updateJudge(0); document.getElementById('prev-diff').textContent = '';
+    checkMilestone();
+    showToast(coords ? '記録を保存しました' : '保存しました');
+  }
+
+  function checkMilestone() {
+    const n = records.length; let m = null;
+    if (n===1) m='最初の記録！';
+    else if (n===5) m='5件達成！';
+    else if (n===10) m='10件！データが揃ってきました';
+    else if (n===50) m='50件達成！';
+    else if (n===100) m='100件突破！';
+    if (m) setTimeout(()=>{const t=document.getElementById('toast');t.textContent=m;t.className='toast milestone show';clearTimeout(t._tid);t._tid=setTimeout(()=>{t.className='toast';},3000);},2500);
+  }
+
+  // ── Share ──
+  // ppm値に応じたグラデーション背景
+  function shareGradient(ppm) {
+    if (ppm <= 50) return 'linear-gradient(160deg, #0a2e1f, #1a5c3a, #2a8a5a)';
+    if (ppm <= 100) return 'linear-gradient(160deg, #0a1628, #1a3a5c, #2a6a8a)';
+    if (ppm <= 150) return 'linear-gradient(160deg, #0a1e30, #1a4a6c, #3a7a9a)';
+    if (ppm <= 200) return 'linear-gradient(160deg, #2a1a08, #5c3a1a, #8a6a2a)';
+    if (ppm <= 250) return 'linear-gradient(160deg, #2a1208, #5c2a10, #8a4a20)';
+    return 'linear-gradient(160deg, #2a0a0a, #5c1a1a, #8a2a2a)';
+  }
+
+  function shareEmoji(ppm) {
+    if (ppm <= 50) return '&#x1F4A7;';
+    if (ppm <= 100) return '&#x2615;';
+    if (ppm <= 150) return '&#x1F30A;';
+    if (ppm <= 200) return '&#x26A0;&#xFE0F;';
+    return '&#x1F6A8;';
+  }
+
+  function openShare(id) {
+    const r = records.find(x=>String(x.id)===String(id));
+    if(!r) { showToast('記録が見つかりません'); return; }
+    shareData = r;
+    const j = judge(r.ppm), color = ppmColor(r.ppm);
+    const d = new Date(r.date);
+    const ds = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+    const tl = r.type==='tap'?'水道水':'浄水';
+    const card = document.getElementById('share-card-inner');
+    card.style.background = shareGradient(r.ppm);
+    card.innerHTML = `
+      <div class="sc-icon">${shareEmoji(r.ppm)}</div>
+      <div class="sc-type-line">${tl}</div>
+      <div class="sc-ppm">${r.ppm} <span>ppm</span></div>
+      <div class="sc-judge">${j.l}</div>
+      <div class="sc-divider"></div>
+      <div class="sc-store">${esc(r.store)}</div>
+      <div class="sc-location">${esc(r.location)}</div>
+      <div class="sc-date">${ds}</div>
+      <div class="sc-brand-row">
+        <div class="sc-brand-dot"></div>
+        <div class="sc-brand">WaterLog</div>
+        <div class="sc-brand-dot"></div>
+      </div>`;
+    document.getElementById('share-overlay').classList.add('active');
+  }
+
+  function closeShare() { document.getElementById('share-overlay').classList.remove('active'); shareData=null; }
+
+  function getShareText() {
+    if (!shareData) return '';
+    const j = judge(shareData.ppm), tl = shareData.type==='tap'?'水道水':'浄水';
+    return `${shareData.store}（${shareData.location}）\n${tl}: ${shareData.ppm}ppm【${j.l}】\n#WaterLog`;
+  }
+
+  // シェアカードを画像化（Stories対応 1080x1920）
+  async function shareCardToImage() {
+    const r = shareData; if (!r) return null;
+    const W = 1080, H = 1920, scale = 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    // 背景グラデーション
+    const colors = r.ppm<=50 ? ['#0a2e1f','#1a5c3a','#2a8a5a']
+      : r.ppm<=100 ? ['#0a1628','#1a3a5c','#2a6a8a']
+      : r.ppm<=150 ? ['#0a1e30','#1a4a6c','#3a7a9a']
+      : r.ppm<=200 ? ['#2a1a08','#5c3a1a','#8a6a2a']
+      : r.ppm<=250 ? ['#2a1208','#5c2a10','#8a4a20']
+      : ['#2a0a0a','#5c1a1a','#8a2a2a'];
+    const grad = ctx.createLinearGradient(0, 0, W*0.4, H);
+    grad.addColorStop(0, colors[0]); grad.addColorStop(0.5, colors[1]); grad.addColorStop(1, colors[2]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 光のエフェクト
+    const rg = ctx.createRadialGradient(W*0.8, H*0.2, 0, W*0.8, H*0.2, W*0.6);
+    rg.addColorStop(0, 'rgba(255,255,255,0.06)'); rg.addColorStop(1, 'transparent');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2;
+    ctx.textAlign = 'center';
+
+    // タイプバッジ
+    const tl = r.type==='tap'?'水道水':'浄水';
+    ctx.font = '600 28px sans-serif';
+    const bw = ctx.measureText(tl).width + 48;
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.beginPath(); ctx.roundRect(cx-bw/2, 620, bw, 48, 24); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 24px sans-serif';
+    ctx.fillText(tl, cx, 652);
+
+    // PPM（メイン）
+    ctx.fillStyle = '#ffffff'; ctx.font = '800 180px sans-serif';
+    ctx.fillText(r.ppm.toString(), cx, 820);
+    ctx.font = '500 48px sans-serif'; ctx.globalAlpha = 0.7;
+    ctx.fillText('ppm', cx, 880); ctx.globalAlpha = 1;
+
+    // 判定
+    const j = judge(r.ppm);
+    ctx.font = '700 36px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText(j.l, cx, 940);
+
+    // ディバイダー
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(cx - 40, 980, 80, 3);
+
+    // 店舗名
+    ctx.fillStyle = '#ffffff'; ctx.font = '700 40px sans-serif';
+    ctx.fillText(r.store, cx, 1050);
+
+    // 場所
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '400 28px sans-serif';
+    ctx.fillText(r.location, cx, 1090);
+
+    // 日付
+    const d = new Date(r.date);
+    const ds = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '400 26px sans-serif';
+    ctx.fillText(ds, cx, 1160);
+
+    // ブランド
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '600 22px sans-serif';
+    ctx.fillText('W A T E R L O G', cx, 1240);
+
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  // 画像保存
+  async function saveShareImage() {
+    if (!shareData) return;
+    showToast('画像を生成中...');
+    const blob = await shareCardToImage();
+    if (!blob) { showToast('画像生成に失敗しました'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `waterlog-${shareData.ppm}ppm.png`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast('画像を保存しました');
+  }
+
+  async function shareToX() {
+    const text = getShareText();
+    window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text), '_blank');
+  }
+
+  async function shareToLINE() {
+    const text = getShareText();
+    window.open('https://line.me/R/share?text='+encodeURIComponent(text), '_blank');
+  }
+
+  async function copyShareText() {
+    try {
+      await navigator.clipboard.writeText(getShareText());
+      showToast('コピーしました');
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = getShareText(); ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('コピーしました');
+    }
+  }
+
+  // Instagram ストーリーズに直接シェア
+  async function nativeShare() {
+    if (!shareData) return;
+    showToast('画像を生成中...');
+    try {
+      const blob = await shareCardToImage();
+      const file = new File([blob], 'waterlog.png', { type: 'image/png' });
+      // Web Share API で画像付きシェア → iOSならInstagram Storiesが選択肢に出る
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        showToast('シェアしました'); closeShare(); return;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+    // Web Share API非対応 → 画像を保存してInstagramを開く
+    try {
+      const blob = await shareCardToImage();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `waterlog-${shareData.ppm}ppm.png`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('画像を保存しました。Instagramを開きます...');
+      setTimeout(() => { window.location.href = 'instagram://story-camera'; }, 800);
+      setTimeout(() => { closeShare(); }, 1500);
+      return;
+    } catch {}
+    // 最終フォールバック: コピー
+    await copyShareText();
+  }
+
+  // ── Delete ──
+  function deleteRecord(id) {
+    if (!confirm('この記録を削除しますか？')) return;
+    records = records.filter(r=>String(r.id)!==String(id)); saveRecords(); renderRecords(); showToast('削除しました');
+    deleteFromFirestore(id);
+  }
+
+  // ── Filters ──
+  function setFilter(f) {
+    currentFilter=f;
+    document.querySelectorAll('#tab-history .filter-chip').forEach(c=>c.classList.toggle('active',c.dataset.filter===f));
+    renderRecords();
+  }
+
+  function setMapFilter(f) {
+    mapFilter=f;
+    document.querySelectorAll('#tab-map .filter-chip').forEach(c=>c.classList.toggle('active',c.dataset.filter===f));
+    renderMapMarkers();
+  }
+
+  let _st; function debouncedRenderRecords() { clearTimeout(_st); _st=setTimeout(renderRecords,200); }
+
+  // ── Colors ──
+  function ppmColor(p) {
+    if(p<=50)return'#34bfa0';if(p<=100)return'#4a9ece';if(p<=150)return'#7ec8e3';
+    if(p<=200)return'#e8a840';if(p<=250)return'#e07840';return'#e05a5a';
+  }
+
+  // ── Map ──
+  let allRecords = []; // Firestoreから取得した全ユーザーデータ
+
+  async function initMap() {
+    if (map) {
+      // 既にマップ初期化済み → データだけ再取得
+      await loadAllRecords();
+      renderMapMarkers();
+      return;
+    }
+    map = L.map('map').setView([35.68,139.69], 11);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19,subdomains:'abcd'}).addTo(map);
+    markerLayer = L.layerGroup().addTo(map);
+    // ローカルの座標なしレコードを補完
+    await retryGeocode();
+    // Firestoreから全ユーザーデータ取得
+    await loadAllRecords();
+    renderMapMarkers();
+  }
+
+  async function loadAllRecords() {
+    const remote = await fetchAllRecords();
+    if (remote.length) {
+      allRecords = remote;
+    } else {
+      // Firestore取得失敗時はローカルデータをフォールバック
+      allRecords = records;
+    }
+  }
+
+  // 座標がないレコードを再ジオコーディング
+  async function retryGeocode() {
+    const missing = records.filter(r => !r.lat || !r.lng);
+    if (!missing.length) return;
+    let updated = false;
+    for (const r of missing) {
+      const coords = await geocode(r.location);
+      if (coords) {
+        r.lat = coords[0]; r.lng = coords[1]; updated = true;
+        syncToFirestore(r);
+      } else if (r.store && r.store !== r.location) {
+        const coords2 = await geocode(r.store);
+        if (coords2) { r.lat = coords2[0]; r.lng = coords2[1]; updated = true; syncToFirestore(r); }
+      }
+    }
+    if (updated) saveRecords();
+  }
+
+  function renderMapMarkers() {
+    if (!markerLayer) return;
+    markerLayer.clearLayers();
+    // 全ユーザーデータをマップに表示
+    const fl = allRecords.filter(r=>r.lat&&r.lng&&(mapFilter==='all'||r.type===mapFilter));
+    const latest = {};
+    fl.forEach(r=>{ const k=`${r.store}_${r.location}_${r.type}`; if(!latest[k]||new Date(r.date)>new Date(latest[k].date))latest[k]=r; });
+    const bounds = [];
+    Object.values(latest).forEach(r=>{
+      const col=ppmColor(r.ppm), sz=r.ppm>=100?44:38;
+      const icon=L.divIcon({className:'',html:`<div class="ppm-marker" style="width:${sz}px;height:${sz}px;background:${col};font-size:${r.ppm>=100?13:14}px;">${r.ppm}</div>`,
+        iconSize:[sz,sz],iconAnchor:[sz/2,sz/2],popupAnchor:[0,-sz/2]});
+      const d=new Date(r.date),ds=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+      const j=judge(r.ppm), tl=r.type==='tap'?'水道水':'浄水';
+      L.marker([r.lat,r.lng],{icon}).addTo(markerLayer).bindPopup(`<div class="map-popup"><div class="store">${esc(r.store)}</div><div class="meta">${esc(r.location)} · ${tl}</div><div class="meta">${ds}</div><div class="ppm-big" style="color:${col}">${r.ppm} <span>ppm · ${j.l}</span></div></div>`);
+      bounds.push([r.lat,r.lng]);
+    });
+    if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:13});
+  }
+
+  // ── Records ──
+  function renderRecords() {
+    renderMonthNav('history-month-nav', historyMonth, 'shiftHistoryMonth', 'resetHistoryMonth');
+    const s=document.getElementById('search').value.toLowerCase(), list=document.getElementById('records-list');
+    let fl=filterByMonth(records, historyMonth).filter(r=>{
+      if(currentFilter!=='all'&&r.type!==currentFilter)return false;
+      if(s&&!r.store.toLowerCase().includes(s)&&!r.location.toLowerCase().includes(s))return false;
+      return true;
+    });
+    if(!fl.length){list.innerHTML='<div class="empty-state"><div class="icon">☕</div><p>記録がありません</p></div>';return;}
+    list.innerHTML=fl.map(r=>{
+      const d=new Date(r.date),p=v=>String(v).padStart(2,'0');
+      const ds=`${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      const pc=r.ppm<=75?'low':r.ppm<=150?'mid':'high';
+      const j=judge(r.ppm);
+      return `<div class="record-card">
+        <div class="record-main">
+          <div class="type-badge ${r.type}">${r.type==='tap'?'水道':'浄水'}</div>
+          <div class="record-info">
+            <div class="store">${esc(r.store)}</div>
+            <div class="location">${esc(r.location)}${r.memo?' · '+esc(r.memo):''}</div>
+            <div class="date">${ds}</div>
+          </div>
+          <div class="record-ppm ${pc}">
+            <div class="value">${r.ppm}</div><div class="unit">ppm</div>
+            <span class="judge-sm" style="color:${ppmColor(r.ppm)}">${j.l}</span>
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="action-btn share" onclick="window._share('${r.id}')">↗ シェア</button>
+          <button class="action-btn del" onclick="window._del('${r.id}')">× 削除</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // グローバル関数として登録（inline onclick用）
+  window._share = function(id) { openShare(id); };
+  window._del = function(id) { deleteRecord(id); };
+
+  // フォールバック: イベント委譲も残す
+  document.getElementById('records-list').addEventListener('click', function(e) {
+    const shareBtn = e.target.closest('.action-btn.share');
+    if (shareBtn && shareBtn.dataset.shareId) { openShare(shareBtn.dataset.shareId); return; }
+    const delBtn = e.target.closest('.action-btn.del');
+    if (delBtn) { deleteRecord(delBtn.dataset.delId); return; }
+  });
+
+  // ── Sparkline ──
+  function spark(vals, color) {
+    if(vals.length<2)return'';
+    const w=240,h=50,pd=4,mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;
+    const pts=vals.map((v,i)=>{const x=pd+(i/(vals.length-1))*(w-pd*2);const y=h-pd-((v-mn)/rng)*(h-pd*2);return`${x},${y}`;});
+    return`<svg class="sparkline" viewBox="0 0 ${w} ${h}"><polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${pts[0].split(',')[0]}" cy="${pts[0].split(',')[1]}" r="3" fill="${color}"/></svg>`;
+  }
+
+  // ── Stats ──
+  function renderStats() {
+    renderMonthNav('stats-month-nav', statsMonth, 'shiftStatsMonth', 'resetStatsMonth');
+    const c=document.getElementById('stats-content');
+    const monthRecs = filterByMonth(records, statsMonth);
+    if(!monthRecs.length){c.innerHTML='<div class="empty-state"><div class="icon">📊</div><p>この月のデータはありません</p></div>';return;}
+    const tapR=monthRecs.filter(r=>r.type==='tap'),filtR=monthRecs.filter(r=>r.type==='filtered');
+    const avgT=tapR.length?Math.round(tapR.reduce((s,r)=>s+r.ppm,0)/tapR.length):'-';
+    const avgF=filtR.length?Math.round(filtR.reduce((s,r)=>s+r.ppm,0)/filtR.length):'-';
+    const us=new Set(monthRecs.map(r=>r.store)).size;
+    const mn=Math.min(...monthRecs.map(r=>r.ppm)),mx=Math.max(...monthRecs.map(r=>r.ppm));
+
+    // Alerts
+    const sm={};monthRecs.forEach(r=>{if(!sm[r.store])sm[r.store]={tap:[],filtered:[]};sm[r.store][r.type].push(r.ppm);});
+    let alertH='';
+    for(const[store,d] of Object.entries(sm)){
+      if(d.tap.length&&d.filtered.length){const diff=d.tap[0]-d.filtered[0];
+        if(diff<30)alertH+=`<div class="filter-alert"><div class="alert-title">⚠ ${esc(store)} - フィルター交換の検討を</div><div class="alert-body">水道水 ${d.tap[0]}ppm / 浄水 ${d.filtered[0]}ppm（差: ${diff}ppm）</div></div>`;
+      }
+    }
+
+    // Trends
+    const tm={};monthRecs.forEach(r=>{const k=`${r.store}__${r.type}`;if(!tm[k])tm[k]={store:r.store,type:r.type,vals:[]};tm[k].vals.push(r.ppm);});
+    let trendH='';
+    Object.values(tm).forEach(s=>{
+      if(s.vals.length<2)return;
+      const v=s.vals.slice(0,10).reverse(),d=v[v.length-1]-v[v.length-2];
+      const ac=d>0?'up':d<0?'down':'',ar=d>0?`+${d}`:d<0?`${d}`:'±0';
+      trendH+=`<div class="trend-chart"><div class="chart-title"><span>${s.type==='tap'?'水道水':'浄水'} ${esc(s.store)}</span><span class="arrow ${ac}">${ar}ppm</span></div>${spark(v,s.type==='tap'?'#4a9ece':'#34bfa0')}</div>`;
+    });
+
+    // Ranking
+    let rankH=Object.entries(sm).map(([store,d])=>{
+      const all=[...d.tap,...d.filtered],avg=Math.round(all.reduce((a,b)=>a+b,0)/all.length),j=judge(avg);
+      return`<div class="record-card" style="margin-bottom:8px;"><div class="record-info"><div class="store">${esc(store)}</div><div class="location">${d.tap.length?'水道水 '+d.tap[0]+'ppm':''}${d.tap.length&&d.filtered.length?' / ':''}${d.filtered.length?'浄水 '+d.filtered[0]+'ppm':''} · ${all.length}件</div></div><div class="record-ppm ${avg<=75?'low':avg<=150?'mid':'high'}"><div class="value">${avg}</div><div class="unit">avg</div><span class="judge-sm" style="color:${ppmColor(avg)}">${j.l}</span></div></div>`;
+    }).join('');
+
+    c.innerHTML=`${alertH}
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value">${monthRecs.length}</div><div class="stat-label">今月の記録数</div></div>
+        <div class="stat-card"><div class="stat-value">${us}</div><div class="stat-label">店舗数</div></div>
+        <div class="stat-card"><div class="stat-value">${avgT}</div><div class="stat-label">水道水 平均PPM</div></div>
+        <div class="stat-card"><div class="stat-value">${avgF}</div><div class="stat-label">浄水 平均PPM</div></div>
+        <div class="stat-card wide"><div class="stat-value">${mn} 〜 ${mx}</div><div class="stat-label">PPM範囲</div></div>
+      </div>
+      ${trendH?`<div class="trend-section"><h3>PPM推移</h3>${trendH}</div>`:''}
+      <h3 style="font-size:14px;margin:16px 0 10px;font-weight:600;">店舗別</h3>${rankH}
+      <div class="data-actions">
+        <button class="data-btn" onclick="exportJSON()">エクスポート</button>
+        <button class="data-btn" onclick="document.getElementById('import-file').click()">インポート</button>
+        <button class="data-btn" onclick="exportCSV()">CSV</button>
+      </div>`;
+  }
+
+  // ── Export/Import ──
+  function exportJSON() {
+    const b=new Blob([JSON.stringify(records,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);
+    a.download=`water-records-${new Date().toISOString().slice(0,10)}.json`;a.click();
+    URL.revokeObjectURL(a.href);showToast('エクスポートしました');
+  }
+
+  function exportCSV() {
+    const h='日付,店舗名,場所,種類,PPM,判定,メモ\n';
+    const rows=records.map(r=>{const d=new Date(r.date);return`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')},${r.store},${r.location},${r.type==='tap'?'水道水':'浄水'},${r.ppm},${judge(r.ppm).l},${r.memo||''}`;}).join('\n');
+    const b=new Blob(['\uFEFF'+h+rows],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);
+    a.download=`water-records-${new Date().toISOString().slice(0,10)}.csv`;a.click();
+    URL.revokeObjectURL(a.href);showToast('CSVをエクスポートしました');
+  }
+
+  function importData(e) {
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=function(ev){
+      try{const d=JSON.parse(ev.target.result);if(!Array.isArray(d))throw 0;
+        const v=d.filter(r=>r&&r.store&&r.location&&typeof r.ppm==='number');
+        const ids=new Set(records.map(r=>r.id));
+        const nw=v.filter(r=>!ids.has(r.id));
+        records=[...nw,...records].sort((a,b)=>new Date(b.date)-new Date(a.date));
+        saveRecords();updateAutoComplete();showToast(`${nw.length}件インポートしました`);
+      }catch{showToast('ファイル形式エラー');}
+      e.target.value='';
+    };r.readAsText(f);
+  }
+
+  // ── Utils ──
+  function updateAutoComplete() {
+    document.getElementById('store-list').innerHTML=[...new Set(records.map(r=>r.store))].map(s=>`<option value="${esc(s)}">`).join('');
+    document.getElementById('location-list').innerHTML=[...new Set(records.map(r=>r.location))].map(l=>`<option value="${esc(l)}">`).join('');
+  }
+
+  function showToast(m) {
+    const t=document.getElementById('toast');t.textContent=m;t.className='toast show';
+    clearTimeout(t._tid);t._tid=setTimeout(()=>{t.className='toast';},2000);
+  }
+
+  function esc(s) {const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+  // ── Nav ──
+  document.querySelectorAll('.nav-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+      const ct=document.getElementById('main-container');
+      if(btn.dataset.tab==='map'){ct.classList.add('map-active');setTimeout(async()=>{await initMap();if(map)map.invalidateSize();},100);}
+      else ct.classList.remove('map-active');
+      if(btn.dataset.tab==='history')renderRecords();
+      if(btn.dataset.tab==='stats')renderStats();
+    });
+  });
+
+  document.getElementById('store-name').addEventListener('input',updatePrevDiff);
+  updateAutoComplete(); updateJudge(0);
+
+  // シェアオーバーレイはinline onclickで処理
+</script>
+
+</body>
+</html>
