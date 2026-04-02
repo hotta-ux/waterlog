@@ -607,7 +607,7 @@
     </div>
     <h1>WaterLog</h1>
   </div>
-  <div class="header-sub">あなたのコーヒーを決めるのは、水だ。</div>
+  <div class="header-sub">あなたのコーヒーを決めるのは、水だ。 <span style="opacity:0.4">v3</span></div>
 </header>
 
 <nav class="top-nav">
@@ -722,20 +722,20 @@
 <!-- Nav moved to top -->
 
 <!-- Share Overlay -->
-<div class="share-overlay" id="share-overlay">
+<div class="share-overlay" id="share-overlay" onclick="if(event.target===this)closeShare()">
   <div class="share-card-container">
     <div class="share-card" id="share-card-inner"></div>
     <div class="share-actions">
       <div class="share-actions-row">
-        <button class="share-btn ig-btn" id="btn-ig">Stories</button>
-        <button class="share-btn x-btn" id="btn-x">X</button>
-        <button class="share-btn line-btn" id="btn-line">LINE</button>
+        <button class="share-btn ig-btn" onclick="nativeShare()">Stories</button>
+        <button class="share-btn x-btn" onclick="shareToX()">X</button>
+        <button class="share-btn line-btn" onclick="shareToLINE()">LINE</button>
       </div>
       <div class="share-actions-row">
-        <button class="share-btn save-btn" id="btn-save">画像を保存</button>
-        <button class="share-btn copy-btn" id="btn-copy">テキストコピー</button>
+        <button class="share-btn save-btn" onclick="saveShareImage()">画像を保存</button>
+        <button class="share-btn copy-btn" onclick="copyShareText()">テキストコピー</button>
       </div>
-      <button class="share-btn close-btn" id="btn-close">閉じる</button>
+      <button class="share-btn close-btn" onclick="closeShare()">閉じる</button>
     </div>
   </div>
 </div>
@@ -1375,17 +1375,21 @@
           </div>
         </div>
         <div class="record-actions">
-          <button class="action-btn share" data-share-id="${r.id}">↗ シェア</button>
-          <button class="action-btn del" data-del-id="${r.id}">× 削除</button>
+          <button class="action-btn share" onclick="window._share('${r.id}')">↗ シェア</button>
+          <button class="action-btn del" onclick="window._del('${r.id}')">× 削除</button>
         </div>
       </div>`;
     }).join('');
   }
 
-  // イベント委譲: records-list全体で1回だけ登録
+  // グローバル関数として登録（inline onclick用）
+  window._share = function(id) { openShare(id); };
+  window._del = function(id) { deleteRecord(id); };
+
+  // フォールバック: イベント委譲も残す
   document.getElementById('records-list').addEventListener('click', function(e) {
     const shareBtn = e.target.closest('.action-btn.share');
-    if (shareBtn) { openShare(shareBtn.dataset.shareId); return; }
+    if (shareBtn && shareBtn.dataset.shareId) { openShare(shareBtn.dataset.shareId); return; }
     const delBtn = e.target.closest('.action-btn.del');
     if (delBtn) { deleteRecord(delBtn.dataset.delId); return; }
   });
@@ -1515,16 +1519,7 @@
   document.getElementById('store-name').addEventListener('input',updatePrevDiff);
   updateAutoComplete(); updateJudge(0);
 
-  // ── シェアオーバーレイのイベント ──
-  document.getElementById('btn-ig').addEventListener('click', nativeShare);
-  document.getElementById('btn-x').addEventListener('click', shareToX);
-  document.getElementById('btn-line').addEventListener('click', shareToLINE);
-  document.getElementById('btn-save').addEventListener('click', saveShareImage);
-  document.getElementById('btn-copy').addEventListener('click', copyShareText);
-  document.getElementById('btn-close').addEventListener('click', closeShare);
-  document.getElementById('share-overlay').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeShare();
-  });
+  // シェアオーバーレイはinline onclickで処理
 </script>
 
 </body>
